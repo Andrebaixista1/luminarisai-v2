@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="core" x1="16" y1="12" x2="44" y2="40" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FDE68A"/>
+      <stop offset="0.55" stop-color="#F59E0B"/>
+      <stop offset="1" stop-color="#EA580C"/>
+    </linearGradient>
+    <linearGradient id="ray" x1="32" y1="6" x2="32" y2="36" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FCD34D"/>
+      <stop offset="1" stop-color="#F97316"/>
+    </linearGradient>
+  </defs>
+
+  <circle cx="32" cy="32" r="14" fill="url(#core)"/>
+  <circle cx="32" cy="32" r="18" fill="none" stroke="#FDBA74" stroke-width="1.8" opacity="0.8"/>
+
+  <g stroke="url(#ray)" stroke-width="2.5" stroke-linecap="round">
+    <line x1="32" y1="5" x2="32" y2="11"/>
+    <line x1="32" y1="53" x2="32" y2="59"/>
+    <line x1="5" y1="32" x2="11" y2="32"/>
+    <line x1="53" y1="32" x2="59" y2="32"/>
+    <line x1="13" y1="13" x2="17.5" y2="17.5"/>
+    <line x1="46.5" y1="46.5" x2="51" y2="51"/>
+    <line x1="13" y1="51" x2="17.5" y2="46.5"/>
+    <line x1="46.5" y1="17.5" x2="51" y2="13"/>
+  </g>
+
+  <path d="M32 22l7.5 16h-4l-1.8-4h-3.4l-1.8 4h-4L32 22zm0 7.5l-.8 1.9h1.6l-.8-1.9z" fill="#0F172A"/>
+</svg>
