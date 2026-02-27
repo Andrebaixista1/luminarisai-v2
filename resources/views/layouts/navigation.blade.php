@@ -1,4 +1,28 @@
-﻿<nav x-data="{ open: false }" class="bg-white border-b border-gray-100">
+@php
+    $navPermissions = [];
+    try {
+        $navLogin = \Illuminate\Support\Str::lower(trim((string) (Auth::user()->name ?? '')));
+        if ($navLogin !== '') {
+            $navPermissionsJson = \Illuminate\Support\Facades\DB::connection('lumia_sqlsrv')
+                ->table('lumia_auth_users')
+                ->whereRaw('LOWER(login) = ?', [$navLogin])
+                ->value('permissions_config_json');
+            $decodedNavPermissions = json_decode((string) $navPermissionsJson, true);
+            if (is_array($decodedNavPermissions)) {
+                $navPermissions = $decodedNavPermissions;
+            }
+        }
+    } catch (\Throwable) {
+        $navPermissions = [];
+    }
+
+    $canDashboard = (bool) ($navPermissions['dashboard'] ?? false);
+    $canSettingsUsers = (bool) ($navPermissions['settings.users'] ?? false);
+    $canSettingsPermissions = (bool) ($navPermissions['settings.permissions'] ?? false);
+    $canSettingsMenu = $canSettingsUsers || $canSettingsPermissions;
+@endphp
+
+<nav x-data="{ open: false }" class="bg-white border-b border-gray-100">
     <!-- Primary Navigation Menu -->
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="flex justify-between h-16">
@@ -13,11 +37,14 @@
 
                 <!-- Navigation Links -->
                 <div class="hidden space-x-8 sm:-my-px sm:ms-10 sm:flex">
-                    <x-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
-                        Painel
-                    </x-nav-link>
+                    @if ($canDashboard)
+                        <x-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
+                            Painel
+                        </x-nav-link>
+                    @endif
 
-                    <div class="flex items-center">
+                    @if ($canSettingsMenu)
+                        <div class="flex items-center">
                         <x-dropdown align="left" width="48">
                             <x-slot name="trigger">
                                 <button class="inline-flex items-center h-16 px-1 border-b-2 text-sm font-medium leading-5 transition duration-150 ease-in-out {{ request()->routeIs('settings.*') ? 'border-orange-500 text-gray-900 focus:outline-none focus:border-orange-700' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 focus:outline-none focus:text-gray-700 focus:border-gray-300' }}">
@@ -32,16 +59,21 @@
                             </x-slot>
 
                             <x-slot name="content">
-                                <x-dropdown-link :href="route('settings.users')">
-                                    Usu&aacute;rios
-                                </x-dropdown-link>
+                                @if ($canSettingsUsers)
+                                    <x-dropdown-link :href="route('settings.users')">
+                                        Usu&aacute;rios
+                                    </x-dropdown-link>
+                                @endif
 
-                                <x-dropdown-link :href="route('settings.permissions')">
-                                    Permiss&otilde;es
-                                </x-dropdown-link>
+                                @if ($canSettingsPermissions)
+                                    <x-dropdown-link :href="route('settings.permissions')">
+                                        Permiss&otilde;es
+                                    </x-dropdown-link>
+                                @endif
                             </x-slot>
                         </x-dropdown>
-                    </div>
+                        </div>
+                    @endif
                 </div>
             </div>
 
@@ -103,15 +135,21 @@
     <!-- Responsive Navigation Menu -->
     <div :class="{'block': open, 'hidden': ! open}" class="hidden sm:hidden">
         <div class="pt-2 pb-3 space-y-1">
-            <x-responsive-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
-                Painel
-            </x-responsive-nav-link>
-            <x-responsive-nav-link :href="route('settings.users')" :active="request()->routeIs('settings.users')">
-                Configura&ccedil;&otilde;es - Usu&aacute;rios
-            </x-responsive-nav-link>
-            <x-responsive-nav-link :href="route('settings.permissions')" :active="request()->routeIs('settings.permissions')">
-                Configura&ccedil;&otilde;es - Permiss&otilde;es
-            </x-responsive-nav-link>
+            @if ($canDashboard)
+                <x-responsive-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
+                    Painel
+                </x-responsive-nav-link>
+            @endif
+            @if ($canSettingsUsers)
+                <x-responsive-nav-link :href="route('settings.users')" :active="request()->routeIs('settings.users')">
+                    Configura&ccedil;&otilde;es - Usu&aacute;rios
+                </x-responsive-nav-link>
+            @endif
+            @if ($canSettingsPermissions)
+                <x-responsive-nav-link :href="route('settings.permissions')" :active="request()->routeIs('settings.permissions')">
+                    Configura&ccedil;&otilde;es - Permiss&otilde;es
+                </x-responsive-nav-link>
+            @endif
         </div>
 
         <div class="px-4 pb-2">
@@ -152,3 +190,4 @@
         </div>
     </div>
 </nav>
+

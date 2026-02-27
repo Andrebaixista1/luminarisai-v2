@@ -82,6 +82,7 @@ html.theme-dark body,
 html.theme-dark .bg-gray-100 { background-color: #0b0b0b !important; }
 html.theme-dark .bg-gray-50 { background-color: #121212 !important; }
 html.theme-dark .bg-white { background-color: #141414 !important; }
+html.theme-dark .bg-gray-200 { background-color: #1c1c1c !important; }
 html.theme-dark .text-gray-900 { color: #f5f5f5 !important; }
 html.theme-dark .text-gray-800 { color: #f0f0f0 !important; }
 html.theme-dark .text-gray-700 { color: #e5e5e5 !important; }

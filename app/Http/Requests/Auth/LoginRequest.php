@@ -15,8 +15,8 @@ use Illuminate\Validation\ValidationException;
 class LoginRequest extends FormRequest
 {
     private const MASTER_LOGIN = 'andrefelipe';
-    private const DEFAULT_PERMISSIONS_JSON = '{"dashboard":true,"settings.users":false,"settings.permissions":false}';
-    private const MASTER_PERMISSIONS_JSON = '{"dashboard":true,"settings.users":true,"settings.permissions":true}';
+    private const DEFAULT_PERMISSIONS_JSON = '{"dashboard":true,"settings.users":false,"settings.users.store":false,"settings.users.unlock-password":false,"settings.users.update-hierarchy":false,"settings.users.update":false,"settings.users.delete":false,"settings.permissions":false,"settings.permissions.update":false}';
+    private const MASTER_PERMISSIONS_JSON = '{"dashboard":true,"settings.users":true,"settings.users.store":true,"settings.users.unlock-password":true,"settings.users.update-hierarchy":true,"settings.users.update":true,"settings.users.delete":true,"settings.permissions":true,"settings.permissions.update":true}';
 
     /**
      * Determine if the user is authorized to make this request.
@@ -49,16 +49,9 @@ class LoginRequest extends FormRequest
         $this->ensureIsNotRateLimited();
 
         $normalizedLogin = Str::lower(trim((string) $this->input('login')));
-        if ($normalizedLogin !== self::MASTER_LOGIN) {
-            RateLimiter::hit($this->throttleKey());
-
-            throw ValidationException::withMessages([
-                'login' => trans('auth.failed'),
-            ]);
-        }
 
         if (app()->environment('testing')) {
-            if (! Auth::attempt(['name' => self::MASTER_LOGIN, 'password' => (string) $this->input('password')], $this->boolean('remember'))) {
+            if (! Auth::attempt(['name' => $normalizedLogin, 'password' => (string) $this->input('password')], $this->boolean('remember'))) {
                 RateLimiter::hit($this->throttleKey());
 
                 throw ValidationException::withMessages([
@@ -76,7 +69,7 @@ class LoginRequest extends FormRequest
             $remoteUser = DB::connection('lumia_sqlsrv')
                 ->table('lumia_auth_users')
                 ->select(['login', 'password_sha256', 'role', 'permissions_config_json'])
-                ->whereRaw('LOWER(login) = ?', [self::MASTER_LOGIN])
+                ->whereRaw('LOWER(login) = ?', [$normalizedLogin])
                 ->first();
         } catch (\Throwable) {
             RateLimiter::hit($this->throttleKey());
@@ -94,12 +87,13 @@ class LoginRequest extends FormRequest
             ]);
         }
 
-        $this->ensurePermissionsConfigForUser(self::MASTER_LOGIN, (string) ($remoteUser->permissions_config_json ?? ''));
+        $remoteLogin = Str::lower(trim((string) ($remoteUser->login ?? $normalizedLogin)));
+        $this->ensurePermissionsConfigForUser($remoteLogin, (string) ($remoteUser->permissions_config_json ?? ''));
 
         $sessionUser = User::updateOrCreate(
-            ['email' => self::MASTER_LOGIN.'@lumia.local'],
+            ['email' => $remoteLogin.'@lumia.local'],
             [
-                'name' => self::MASTER_LOGIN,
+                'name' => $remoteLogin,
                 // Local password is not used for authentication; auth is validated against SQL Server.
                 'password' => Hash::make(Str::random(40)),
             ]

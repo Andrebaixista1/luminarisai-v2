@@ -30,6 +30,16 @@ class SettingsUsersController extends Controller
     {
         $queryError = null;
         $remoteUsers = [];
+        $existingTeams = [];
+        $currentRemoteLogin = Str::lower(trim((string) $request->user()?->name));
+        $currentRemoteHierarchy = null;
+        $currentRemoteEquipe = null;
+        $isCurrentRemoteMaster = $this->currentRemoteUserId($request) === 1;
+        $currentPermissions = $this->currentRemotePermissions($request);
+        $canAddUsers = $this->hasCurrentUserPermission($currentPermissions, 'settings.users.store');
+        $canEditUsers = $this->hasCurrentUserPermission($currentPermissions, 'settings.users.update');
+        $canEditHierarchy = $this->hasCurrentUserPermission($currentPermissions, 'settings.users.update-hierarchy');
+        $canDeleteUsers = $this->hasCurrentUserPermission($currentPermissions, 'settings.users.delete');
 
         $permissions = $this->discoverPermissions();
         $matrix = $this->mergeMatrixWithPermissions($this->loadMatrix(), $permissions);
@@ -56,6 +66,9 @@ class SettingsUsersController extends Controller
                 if ((int) $row->id === 1 && $row->equipe === '') {
                     $row->equipe = 'CEO';
                 }
+                if ($row->equipe !== '') {
+                    $existingTeams[$row->equipe] = true;
+                }
                 $row->created_at_label = $this->formatDateTimeLabel($row->created_at);
                 $row->updated_at_label = $this->formatDateTimeLabel($row->updated_at);
                 $row->hierarchy = $this->resolveUserHierarchy(
@@ -64,24 +77,46 @@ class SettingsUsersController extends Controller
                     $matrix
                 );
                 $row->hierarchy_label = $hierarchyLabels[$row->hierarchy] ?? Str::headline($row->hierarchy);
+                $row->is_current_user = $currentRemoteLogin !== '' && Str::lower((string) $row->login) === $currentRemoteLogin;
+                if ($row->is_current_user) {
+                    $currentRemoteHierarchy = $row->hierarchy;
+                    $currentRemoteEquipe = $row->equipe;
+                }
                 $remoteUsers[] = $row;
             }
         } catch (\Throwable) {
             $queryError = 'Nao foi possivel carregar os dados de usuarios no momento.';
         }
 
+        if ($currentRemoteHierarchy === 'supervisao') {
+            $remoteUsers = array_values(array_filter($remoteUsers, function ($row) use ($currentRemoteEquipe) {
+                return $row->equipe === $currentRemoteEquipe;
+            }));
+        }
+
         return view('settings.users', [
             'queryError' => $queryError,
             'remoteUsers' => $remoteUsers,
+            'existingTeams' => array_values(array_keys($existingTeams)),
             'hierarchies' => self::HIERARCHIES,
             'hierarchyPermissionLabels' => $hierarchyPermissionLabels,
             'hasEquipeColumn' => $hasEquipeColumn,
-            'canAddUsers' => $this->canCurrentUserAddUsers($request),
+            'canAddUsers' => $canAddUsers,
+            'canEditUsers' => $canEditUsers,
+            'canEditHierarchy' => $canEditHierarchy,
+            'canDeleteUsers' => $canDeleteUsers,
+            'isCurrentRemoteMaster' => $isCurrentRemoteMaster,
         ]);
     }
 
     public function unlockPassword(Request $request): RedirectResponse
     {
+        if (! $this->hasCurrentUserPermission($this->currentRemotePermissions($request), 'settings.users.unlock-password')) {
+            return back()->withErrors([
+                'master_password' => 'Sem permissao para liberar senha.',
+            ]);
+        }
+
         $validated = $request->validate([
             'master_password' => ['required', 'string'],
         ], [
@@ -115,6 +150,13 @@ class SettingsUsersController extends Controller
 
     public function updateHierarchy(Request $request): RedirectResponse
     {
+        $currentRemoteUserId = $this->currentRemoteUserId($request);
+        if (! $this->hasCurrentUserPermission($this->currentRemotePermissions($request), 'settings.users.update-hierarchy')) {
+            return back()->withErrors([
+                'hierarchy' => 'Sem permissao para alterar hierarquia.',
+            ])->withInput();
+        }
+
         $hierarchyKeys = array_map(static fn (array $h): string => $h['key'], self::HIERARCHIES);
 
         $validated = $request->validate([
@@ -129,6 +171,12 @@ class SettingsUsersController extends Controller
         $permissions = $this->discoverPermissions();
         $matrix = $this->mergeMatrixWithPermissions($this->loadMatrix(), $permissions);
         $hierarchy = (string) $validated['hierarchy'];
+        if ($hierarchy === 'master' && $currentRemoteUserId !== 1) {
+            return back()->withErrors([
+                'hierarchy' => 'Apenas o usuario master (ID 1) pode atribuir hierarquia Master.',
+            ])->withInput();
+        }
+
         $permissionsForHierarchy = $matrix[$hierarchy] ?? [];
         $permissionsJson = json_encode($permissionsForHierarchy, JSON_UNESCAPED_SLASHES);
 
@@ -163,16 +211,61 @@ class SettingsUsersController extends Controller
 
     public function deleteUser(Request $request): RedirectResponse
     {
+        if (! $this->hasCurrentUserPermission($this->currentRemotePermissions($request), 'settings.users.delete')) {
+            return $this->redirectBackWithDeleteErrors($request, [
+                'user_id' => 'Sem permissao para excluir usuarios.',
+            ]);
+        }
+
         $validated = $request->validate([
             'user_id' => ['required', 'integer'],
+            'current_password' => ['required', 'string'],
         ], [
             'user_id.required' => 'Selecione um usuario para excluir.',
+            'current_password.required' => 'Informe a senha atual para confirmar a exclusao.',
         ]);
 
         $userId = (int) $validated['user_id'];
         if ($userId === 1) {
-            return back()->withErrors([
+            return $this->redirectBackWithDeleteErrors($request, [
                 'user_id' => 'O usuario master (ID 1) nao pode ser excluido.',
+            ]);
+        }
+
+        $currentRemoteUserId = $this->currentRemoteUserId($request);
+        if ($currentRemoteUserId !== null && $currentRemoteUserId === $userId) {
+            return $this->redirectBackWithDeleteErrors($request, [
+                'user_id' => 'Voce nao pode excluir o seu proprio login.',
+            ]);
+        }
+
+        if ($currentRemoteUserId === null) {
+            return $this->redirectBackWithDeleteErrors($request, [
+                'current_password' => 'Falha ao validar o usuario atual para excluir.',
+            ]);
+        }
+
+        try {
+            $currentRemoteUser = DB::connection('lumia_sqlsrv')
+                ->table('lumia_auth_users')
+                ->select(['password_sha256'])
+                ->where('id', $currentRemoteUserId)
+                ->first();
+        } catch (\Throwable) {
+            return $this->redirectBackWithDeleteErrors($request, [
+                'current_password' => 'Falha ao validar a senha atual.',
+            ]);
+        }
+
+        $currentPasswordSha256 = hash('sha256', (string) $validated['current_password']);
+        $storedHash = $this->normalizeSha256($currentRemoteUser?->password_sha256);
+        if (! $storedHash) {
+            $storedHash = (string) ($currentRemoteUser?->password_sha256 ?? '');
+        }
+
+        if (! $currentRemoteUser || ! hash_equals($storedHash, $currentPasswordSha256)) {
+            return $this->redirectBackWithDeleteErrors($request, [
+                'current_password' => 'Senha atual incorreta.',
             ]);
         }
 
@@ -182,18 +275,131 @@ class SettingsUsersController extends Controller
                 ->where('id', $userId)
                 ->delete();
         } catch (\Throwable) {
-            return back()->withErrors([
+            return $this->redirectBackWithDeleteErrors($request, [
                 'user_id' => 'Falha ao excluir o usuario.',
             ]);
         }
 
         if ($deletedRows === 0) {
-            return back()->withErrors([
+            return $this->redirectBackWithDeleteErrors($request, [
                 'user_id' => 'Usuario nao encontrado para exclusao.',
             ]);
         }
 
         return back()->with('status', 'users-deleted');
+    }
+
+    public function updateUser(Request $request): RedirectResponse
+    {
+        $currentPermissions = $this->currentRemotePermissions($request);
+        if (! $this->hasCurrentUserPermission($currentPermissions, 'settings.users.update')) {
+            return back()->withErrors([
+                'edit_login' => 'Sem permissao para editar usuarios.',
+            ])->withInput();
+        }
+
+        $currentRemoteUserId = $this->currentRemoteUserId($request);
+        $hierarchyKeys = array_map(static fn (array $h): string => $h['key'], self::HIERARCHIES);
+        $canChangeHierarchy = $this->hasCurrentUserPermission($currentPermissions, 'settings.users.update-hierarchy');
+
+        $rules = [
+            'user_id' => ['required', 'integer'],
+            'edit_login' => ['required', 'string', 'min:3', 'max:120'],
+            'edit_password' => ['nullable', 'string', 'min:6', 'confirmed'],
+            'edit_equipe' => ['nullable', 'string', 'max:120'],
+        ];
+        $messages = [
+            'user_id.required' => 'Selecione um usuario para editar.',
+            'edit_login.required' => 'Informe o login.',
+            'edit_login.min' => 'O login deve ter no minimo 3 caracteres.',
+            'edit_login.max' => 'O login deve ter no maximo 120 caracteres.',
+            'edit_password.min' => 'A senha deve ter no minimo 6 caracteres.',
+            'edit_password.confirmed' => 'A confirmacao da senha nao confere.',
+            'edit_equipe.max' => 'O nome da equipe deve ter no maximo 120 caracteres.',
+        ];
+
+        if ($canChangeHierarchy) {
+            $rules['hierarchy'] = ['required', 'string', 'in:'.implode(',', $hierarchyKeys)];
+            $messages['hierarchy.required'] = 'Selecione a hierarquia.';
+            $messages['hierarchy.in'] = 'Hierarquia invalida.';
+        }
+
+        $validated = $request->validate($rules, $messages);
+
+        $userId = (int) $validated['user_id'];
+        $login = trim((string) $validated['edit_login']);
+        $loginLower = Str::lower($login);
+
+        try {
+            $loginConflict = DB::connection('lumia_sqlsrv')
+                ->table('lumia_auth_users')
+                ->whereRaw('LOWER(login) = ?', [$loginLower])
+                ->where('id', '<>', $userId)
+                ->exists();
+        } catch (\Throwable) {
+            return back()->withErrors([
+                'edit_login' => 'Falha ao validar login no banco.',
+            ])->withInput();
+        }
+
+        if ($loginConflict) {
+            return back()->withErrors([
+                'edit_login' => 'Ja existe um usuario com este login.',
+            ])->withInput();
+        }
+
+        $update = [
+            'login' => $login,
+            'updated_at' => now(),
+        ];
+        if (! empty($validated['edit_password'])) {
+            $update['password_sha256'] = hash('sha256', (string) $validated['edit_password']);
+        }
+
+        if ($this->hasEquipeColumn()) {
+            $equipeValue = trim((string) ($validated['edit_equipe'] ?? ''));
+            $update['equipe'] = $equipeValue === '' ? null : $equipeValue;
+        }
+
+        if ($canChangeHierarchy) {
+            $hierarchy = (string) $validated['hierarchy'];
+            if ($hierarchy === 'master' && $currentRemoteUserId !== 1) {
+                return back()->withErrors([
+                    'hierarchy' => 'Apenas o usuario master (ID 1) pode atribuir hierarquia Master.',
+                ])->withInput();
+            }
+
+            $permissions = $this->discoverPermissions();
+            $matrix = $this->mergeMatrixWithPermissions($this->loadMatrix(), $permissions);
+            $permissionsForHierarchy = $matrix[$hierarchy] ?? [];
+            $permissionsJson = json_encode($permissionsForHierarchy, JSON_UNESCAPED_SLASHES);
+            if ($permissionsJson === false) {
+                return back()->withErrors([
+                    'hierarchy' => 'Nao foi possivel gerar as permissoes da hierarquia.',
+                ])->withInput();
+            }
+            $update['role'] = $hierarchy;
+            $update['permissions_config_json'] = $permissionsJson;
+        }
+
+        try {
+            $updatedRows = DB::connection('lumia_sqlsrv')
+                ->table('lumia_auth_users')
+                ->where('id', $userId)
+                ->update($update);
+        } catch (\Throwable) {
+            return back()->withErrors([
+                'edit_login' => 'Falha ao atualizar o usuario.',
+            ])->withInput();
+        }
+
+        if ($updatedRows === 0) {
+            return back()->withErrors([
+                'edit_login' => 'Usuario nao encontrado para atualizacao.',
+            ])->withInput();
+        }
+
+        return back()->with('status', 'users-updated');
     }
 
     public function storeUser(Request $request): RedirectResponse
@@ -210,6 +416,9 @@ class SettingsUsersController extends Controller
             'add_login' => ['required', 'string', 'min:3', 'max:120'],
             'add_password' => ['required', 'string', 'min:6', 'confirmed'],
             'add_hierarchy' => ['required', 'string', 'in:'.implode(',', $hierarchyKeys)],
+            'add_equipe_mode' => ['nullable', 'string', 'in:existing,new'],
+            'add_equipe_existing' => ['nullable', 'string', 'max:120'],
+            'add_equipe_new' => ['nullable', 'string', 'max:120'],
         ], [
             'add_login.required' => 'Informe o login.',
             'add_password.required' => 'Informe a senha.',
@@ -217,6 +426,7 @@ class SettingsUsersController extends Controller
             'add_password.confirmed' => 'A confirmacao da senha nao confere.',
             'add_hierarchy.required' => 'Selecione a hierarquia.',
             'add_hierarchy.in' => 'Hierarquia invalida.',
+            'add_equipe_mode.in' => 'Modo de equipe invalido.',
         ]);
 
         $login = trim((string) $validated['add_login']);
@@ -252,6 +462,25 @@ class SettingsUsersController extends Controller
 
         $passwordSha256 = hash('sha256', (string) $validated['add_password']);
         $now = now();
+        $equipeValue = null;
+        if ($this->hasEquipeColumn()) {
+            $equipeMode = (string) ($validated['add_equipe_mode'] ?? 'existing');
+            if ($equipeMode === 'new') {
+                $equipeValue = trim((string) ($validated['add_equipe_new'] ?? ''));
+                if ($equipeValue === '') {
+                    return back()->withErrors([
+                        'add_equipe_new' => 'Informe o nome da nova equipe.',
+                    ])->withInput();
+                }
+            } else {
+                $equipeValue = trim((string) ($validated['add_equipe_existing'] ?? ''));
+                if ($equipeValue === '') {
+                    return back()->withErrors([
+                        'add_equipe_existing' => 'Selecione uma equipe existente ou escolha criar nova.',
+                    ])->withInput();
+                }
+            }
+        }
 
         try {
             DB::connection('lumia_sqlsrv')
@@ -263,7 +492,7 @@ class SettingsUsersController extends Controller
                     'permissions_config_json' => $permissionsJson,
                     'created_at' => $now,
                     'updated_at' => $now,
-                    'equipe' => null,
+                    'equipe' => $equipeValue,
                 ]);
         } catch (\Throwable) {
             return back()->withErrors([
@@ -276,9 +505,57 @@ class SettingsUsersController extends Controller
 
     private function canCurrentUserAddUsers(Request $request): bool
     {
+        return $this->hasCurrentUserPermission($this->currentRemotePermissions($request), 'settings.users.store');
+    }
+
+    /**
+     * @return array<string, bool>
+     */
+    private function currentRemotePermissions(Request $request): array
+    {
         $login = Str::lower(trim((string) $request->user()?->name));
         if ($login === '') {
-            return false;
+            return [];
+        }
+
+        try {
+            $permissionsJson = DB::connection('lumia_sqlsrv')
+                ->table('lumia_auth_users')
+                ->whereRaw('LOWER(login) = ?', [$login])
+                ->value('permissions_config_json');
+        } catch (\Throwable) {
+            return [];
+        }
+
+        $decoded = json_decode((string) $permissionsJson, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    /**
+     * @param array<string, bool> $permissions
+     */
+    private function hasCurrentUserPermission(array $permissions, string $permissionKey): bool
+    {
+        if (array_key_exists($permissionKey, $permissions)) {
+            return (bool) $permissions[$permissionKey];
+        }
+
+        if (Str::startsWith($permissionKey, 'settings.users.')) {
+            return (bool) ($permissions['settings.users'] ?? false);
+        }
+
+        if (Str::startsWith($permissionKey, 'settings.permissions.')) {
+            return (bool) ($permissions['settings.permissions'] ?? false);
+        }
+
+        return false;
+    }
+
+    private function currentRemoteUserId(Request $request): ?int
+    {
+        $login = Str::lower(trim((string) $request->user()?->name));
+        if ($login === '') {
+            return null;
         }
 
         try {
@@ -287,10 +564,17 @@ class SettingsUsersController extends Controller
                 ->whereRaw('LOWER(login) = ?', [$login])
                 ->value('id');
         } catch (\Throwable) {
-            return false;
+            return null;
         }
 
-        return (int) $remoteUserId === 1;
+        return $remoteUserId === null ? null : (int) $remoteUserId;
+    }
+
+    private function redirectBackWithDeleteErrors(Request $request, array $errors): RedirectResponse
+    {
+        return back()
+            ->withErrors($errors)
+            ->withInput($request->except('current_password'));
     }
 
     private function hasEquipeColumn(): bool
@@ -326,7 +610,7 @@ class SettingsUsersController extends Controller
     }
 
     /**
-     * @return array<int, array{key: string, label: string, group: string}>
+     * @return array<int, array{key: string, label: string, group: string, type: string, method: string}>
      */
     private function discoverPermissions(): array
     {
@@ -338,11 +622,6 @@ class SettingsUsersController extends Controller
                 continue;
             }
 
-            $methods = $route->methods();
-            if (! in_array('GET', $methods, true) || in_array('HEAD', $methods, true) && count($methods) === 1) {
-                continue;
-            }
-
             if (! in_array('auth', $route->gatherMiddleware(), true)) {
                 continue;
             }
@@ -351,15 +630,24 @@ class SettingsUsersController extends Controller
                 continue;
             }
 
+            $method = $this->primaryRouteMethod($route->methods());
+            if ($method === null) {
+                continue;
+            }
+
             $permissions[] = [
                 'key' => $name,
-                'label' => $this->labelFromRouteName($name),
+                'label' => $this->labelFromRouteName($name, $method),
                 'group' => $this->groupFromRouteName($name),
+                'type' => $method === 'GET' ? 'page' : 'action',
+                'method' => $method,
             ];
         }
 
         usort($permissions, function (array $a, array $b): int {
-            return [$a['group'], $a['label']] <=> [$b['group'], $b['label']];
+            $typeOrderA = $a['type'] === 'page' ? 0 : 1;
+            $typeOrderB = $b['type'] === 'page' ? 0 : 1;
+            return [$a['group'], $typeOrderA, $a['label']] <=> [$b['group'], $typeOrderB, $b['label']];
         });
 
         return $permissions;
@@ -391,12 +679,18 @@ class SettingsUsersController extends Controller
         return 'Outras';
     }
 
-    private function labelFromRouteName(string $name): string
+    private function labelFromRouteName(string $name, string $method): string
     {
         $map = [
             'dashboard' => 'Painel',
-            'settings.users' => 'Configuracoes -> Usuarios',
-            'settings.permissions' => 'Configuracoes -> Permissoes',
+            'settings.users' => 'Usuarios',
+            'settings.users.store' => 'Criar usuario',
+            'settings.users.unlock-password' => 'Liberar senha',
+            'settings.users.update-hierarchy' => 'Alterar hierarquia',
+            'settings.users.update' => 'Editar usuario',
+            'settings.users.delete' => 'Excluir usuario',
+            'settings.permissions' => 'Permissoes',
+            'settings.permissions.update' => 'Salvar alteracoes',
         ];
 
         if (isset($map[$name])) {
@@ -406,9 +700,22 @@ class SettingsUsersController extends Controller
         return Str::headline(str_replace('.', ' ', $name));
     }
 
+    private function primaryRouteMethod(array $methods): ?string
+    {
+        foreach ($methods as $method) {
+            if (in_array($method, ['HEAD', 'OPTIONS'], true)) {
+                continue;
+            }
+
+            return $method;
+        }
+
+        return null;
+    }
+
     /**
      * @param array<string, array<string, bool>> $matrix
-     * @param array<int, array{key: string, label: string, group: string}> $permissions
+     * @param array<int, array{key: string, label: string, group: string, type: string, method: string}> $permissions
      * @return array<string, array<string, bool>>
      */
     private function mergeMatrixWithPermissions(array $matrix, array $permissions): array
@@ -421,11 +728,30 @@ class SettingsUsersController extends Controller
 
             foreach ($permissions as $permission) {
                 $permissionKey = $permission['key'];
-                $normalized[$hierarchyKey][$permissionKey] = (bool) ($matrix[$hierarchyKey][$permissionKey] ?? false);
+                $normalized[$hierarchyKey][$permissionKey] = array_key_exists($permissionKey, $matrix[$hierarchyKey] ?? [])
+                    ? (bool) $matrix[$hierarchyKey][$permissionKey]
+                    : $this->defaultPermissionValue($hierarchyKey, $permissionKey);
             }
         }
 
         return $normalized;
+    }
+
+    private function defaultPermissionValue(string $hierarchyKey, string $permissionKey): bool
+    {
+        if ($hierarchyKey === 'master') {
+            return true;
+        }
+
+        if ($permissionKey === 'dashboard') {
+            return true;
+        }
+
+        if ($permissionKey === 'settings.users') {
+            return in_array($hierarchyKey, ['administrador', 'supervisao'], true);
+        }
+
+        return false;
     }
 
     /**
@@ -448,7 +774,7 @@ class SettingsUsersController extends Controller
 
     /**
      * @param array<string, array<string, bool>> $matrix
-     * @param array<int, array{key: string, label: string, group: string}> $permissions
+     * @param array<int, array{key: string, label: string, group: string, type: string, method: string}> $permissions
      * @return array<string, array<int, string>>
      */
     private function buildHierarchyPermissionLabels(array $matrix, array $permissions): array

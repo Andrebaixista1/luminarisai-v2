@@ -31,7 +31,7 @@ class SettingsPermissionsController extends Controller
 
         return view('settings.permissions', [
             'hierarchies' => self::HIERARCHIES,
-            'permissionsByGroup' => $this->groupPermissions($permissions),
+            'permissionTree' => $this->buildPermissionTree($permissions),
             'matrix' => $matrix,
         ]);
     }
@@ -58,7 +58,7 @@ class SettingsPermissionsController extends Controller
     }
 
     /**
-     * @return array<int, array{key: string, label: string, group: string}>
+     * @return array<int, array{key: string, label: string, group: string, type: string, method: string}>
      */
     private function discoverPermissions(): array
     {
@@ -70,11 +70,6 @@ class SettingsPermissionsController extends Controller
                 continue;
             }
 
-            $methods = $route->methods();
-            if (! in_array('GET', $methods, true) || in_array('HEAD', $methods, true) && count($methods) === 1) {
-                continue;
-            }
-
             if (! in_array('auth', $route->gatherMiddleware(), true)) {
                 continue;
             }
@@ -83,15 +78,24 @@ class SettingsPermissionsController extends Controller
                 continue;
             }
 
+            $method = $this->primaryRouteMethod($route->methods());
+            if ($method === null) {
+                continue;
+            }
+
             $permissions[] = [
                 'key' => $name,
-                'label' => $this->labelFromRouteName($name),
+                'label' => $this->labelFromRouteName($name, $method),
                 'group' => $this->groupFromRouteName($name),
+                'type' => $method === 'GET' ? 'page' : 'action',
+                'method' => $method,
             ];
         }
 
         usort($permissions, function (array $a, array $b): int {
-            return [$a['group'], $a['label']] <=> [$b['group'], $b['label']];
+            $typeOrderA = $a['type'] === 'page' ? 0 : 1;
+            $typeOrderB = $b['type'] === 'page' ? 0 : 1;
+            return [$a['group'], $typeOrderA, $a['label']] <=> [$b['group'], $typeOrderB, $b['label']];
         });
 
         return $permissions;
@@ -123,12 +127,18 @@ class SettingsPermissionsController extends Controller
         return 'Outras';
     }
 
-    private function labelFromRouteName(string $name): string
+    private function labelFromRouteName(string $name, string $method): string
     {
         $map = [
             'dashboard' => 'Painel',
-            'settings.users' => "Configura\u{00E7}\u{00F5}es -> Usu\u{00E1}rios",
-            'settings.permissions' => "Configura\u{00E7}\u{00F5}es -> Permiss\u{00F5}es",
+            'settings.users' => "Usu\u{00E1}rios",
+            'settings.users.store' => "Criar usu\u{00E1}rio",
+            'settings.users.unlock-password' => "Liberar senha",
+            'settings.users.update-hierarchy' => "Alterar hierarquia",
+            'settings.users.update' => "Editar usu\u{00E1}rio",
+            'settings.users.delete' => "Excluir usu\u{00E1}rio",
+            'settings.permissions' => "Permiss\u{00F5}es",
+            'settings.permissions.update' => "Salvar altera\u{00E7}\u{00F5}es",
         ];
 
         if (isset($map[$name])) {
@@ -138,9 +148,22 @@ class SettingsPermissionsController extends Controller
         return Str::headline(str_replace('.', ' ', $name));
     }
 
+    private function primaryRouteMethod(array $methods): ?string
+    {
+        foreach ($methods as $method) {
+            if (in_array($method, ['HEAD', 'OPTIONS'], true)) {
+                continue;
+            }
+
+            return $method;
+        }
+
+        return null;
+    }
+
     /**
      * @param array<string, array<string, bool>> $matrix
-     * @param array<int, array{key: string, label: string, group: string}> $permissions
+     * @param array<int, array{key: string, label: string, group: string, type: string, method: string}> $permissions
      * @return array<string, array<string, bool>>
      */
     private function mergeMatrixWithPermissions(array $matrix, array $permissions): array
@@ -153,11 +176,30 @@ class SettingsPermissionsController extends Controller
 
             foreach ($permissions as $permission) {
                 $permissionKey = $permission['key'];
-                $normalized[$hierarchyKey][$permissionKey] = (bool) ($matrix[$hierarchyKey][$permissionKey] ?? false);
+                $normalized[$hierarchyKey][$permissionKey] = array_key_exists($permissionKey, $matrix[$hierarchyKey] ?? [])
+                    ? (bool) $matrix[$hierarchyKey][$permissionKey]
+                    : $this->defaultPermissionValue($hierarchyKey, $permissionKey);
             }
         }
 
         return $normalized;
+    }
+
+    private function defaultPermissionValue(string $hierarchyKey, string $permissionKey): bool
+    {
+        if ($hierarchyKey === 'master') {
+            return true;
+        }
+
+        if ($permissionKey === 'dashboard') {
+            return true;
+        }
+
+        if ($permissionKey === 'settings.users') {
+            return in_array($hierarchyKey, ['administrador', 'supervisao'], true);
+        }
+
+        return false;
     }
 
     /**
@@ -195,16 +237,66 @@ class SettingsPermissionsController extends Controller
     }
 
     /**
-     * @param array<int, array{key: string, label: string, group: string}> $permissions
-     * @return array<string, array<int, array{key: string, label: string, group: string}>>
+     * @param array<int, array{key: string, label: string, group: string, type: string, method: string}> $permissions
+     * @return array<int, array{key: string, label: string, group: string, actions: array<int, array{key: string, label: string, group: string, type: string, method: string}>}>
      */
-    private function groupPermissions(array $permissions): array
+    private function buildPermissionTree(array $permissions): array
     {
-        $grouped = [];
+        $pages = [];
+        $actions = [];
+
         foreach ($permissions as $permission) {
-            $grouped[$permission['group']][] = $permission;
+            if ($permission['type'] === 'page') {
+                $pages[] = $permission;
+            } else {
+                $actions[] = $permission;
+            }
         }
 
-        return $grouped;
+        $tree = [];
+        foreach ($pages as $page) {
+            $tree[$page['key']] = [
+                'key' => $page['key'],
+                'label' => $page['label'],
+                'group' => $page['group'],
+                'actions' => [],
+            ];
+        }
+
+        foreach ($actions as $action) {
+            $pageKey = $this->resolveActionParentPageKey($action['key'], $tree);
+            if ($pageKey === null) {
+                continue;
+            }
+
+            $tree[$pageKey]['actions'][] = $action;
+        }
+
+        foreach ($tree as &$node) {
+            usort($node['actions'], fn (array $a, array $b): int => $a['label'] <=> $b['label']);
+        }
+        unset($node);
+
+        return array_values($tree);
+    }
+
+    /**
+     * @param array<string, array{key: string, label: string, group: string, actions: array<int, array{key: string, label: string, group: string, type: string, method: string}>}> $tree
+     */
+    private function resolveActionParentPageKey(string $actionKey, array $tree): ?string
+    {
+        $matchedPageKey = null;
+
+        foreach (array_keys($tree) as $pageKey) {
+            if (! Str::startsWith($actionKey, $pageKey.'.')) {
+                continue;
+            }
+
+            if ($matchedPageKey === null || strlen($pageKey) > strlen($matchedPageKey)) {
+                $matchedPageKey = $pageKey;
+            }
+        }
+
+        return $matchedPageKey;
     }
 }
