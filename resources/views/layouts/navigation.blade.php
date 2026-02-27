@@ -1,4 +1,8 @@
 @php
+    $brand = \App\Support\Whitelabel::settings();
+    $brandName = $brand['system_name'] ?? 'Lumi.A';
+    $brandLogoUrl = $brand['logo_url'] ?? null;
+
     $navPermissions = [];
     try {
         $navLogin = \Illuminate\Support\Str::lower(trim((string) (Auth::user()->name ?? '')));
@@ -19,7 +23,9 @@
     $canDashboard = (bool) ($navPermissions['dashboard'] ?? false);
     $canSettingsUsers = (bool) ($navPermissions['settings.users'] ?? false);
     $canSettingsPermissions = (bool) ($navPermissions['settings.permissions'] ?? false);
+    $canAdministrativeWhitelabel = (bool) (($navPermissions['administrative.whitelabel'] ?? false) || ($navPermissions['settings.permissions'] ?? false));
     $canSettingsMenu = $canSettingsUsers || $canSettingsPermissions;
+    $canAdministrativeMenu = $canAdministrativeWhitelabel;
 @endphp
 
 <nav x-data="{ open: false }" class="bg-white border-b border-gray-100">
@@ -30,8 +36,12 @@
                 <!-- Logo -->
                 <div class="shrink-0 flex items-center">
                     <a href="{{ route('dashboard') }}" class="inline-flex items-center gap-2">
-                        <x-application-logo class="block h-10 w-10" />
-                        <span class="text-sm font-semibold text-slate-800">Lumi.A</span>
+                        @if ($brandLogoUrl)
+                            <img src="{{ $brandLogoUrl }}" alt="Logo" class="block h-10 w-10 rounded object-contain bg-white p-1">
+                        @else
+                            <x-application-logo class="block h-10 w-10" />
+                        @endif
+                        <span class="text-sm font-semibold text-slate-800">{{ $brandName }}</span>
                     </a>
                 </div>
 
@@ -41,6 +51,32 @@
                         <x-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
                             Painel
                         </x-nav-link>
+                    @endif
+
+                    @if ($canAdministrativeMenu)
+                        <div class="flex items-center">
+                        <x-dropdown align="left" width="48">
+                            <x-slot name="trigger">
+                                <button class="inline-flex items-center h-16 px-1 border-b-2 text-sm font-medium leading-5 transition duration-150 ease-in-out {{ request()->routeIs('administrative.*') ? 'border-orange-500 text-gray-900 focus:outline-none focus:border-orange-700' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 focus:outline-none focus:text-gray-700 focus:border-gray-300' }}">
+                                    <div>Administrativo</div>
+
+                                    <div class="ms-1">
+                                        <svg class="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+                                            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                        </svg>
+                                    </div>
+                                </button>
+                            </x-slot>
+
+                            <x-slot name="content">
+                                @if ($canAdministrativeWhitelabel)
+                                    <x-dropdown-link :href="route('administrative.whitelabel')">
+                                        Whitelabel
+                                    </x-dropdown-link>
+                                @endif
+                            </x-slot>
+                        </x-dropdown>
+                        </div>
                     @endif
 
                     @if ($canSettingsMenu)
@@ -148,6 +184,11 @@
             @if ($canSettingsPermissions)
                 <x-responsive-nav-link :href="route('settings.permissions')" :active="request()->routeIs('settings.permissions')">
                     Configura&ccedil;&otilde;es - Permiss&otilde;es
+                </x-responsive-nav-link>
+            @endif
+            @if ($canAdministrativeWhitelabel)
+                <x-responsive-nav-link :href="route('administrative.whitelabel')" :active="request()->routeIs('administrative.whitelabel')">
+                    Administrativo - Whitelabel
                 </x-responsive-nav-link>
             @endif
         </div>

@@ -676,6 +676,10 @@ class SettingsUsersController extends Controller
             return 'Configuracoes';
         }
 
+        if (Str::startsWith($name, 'administrative.')) {
+            return 'Administrativo';
+        }
+
         return 'Outras';
     }
 
@@ -691,6 +695,8 @@ class SettingsUsersController extends Controller
             'settings.users.delete' => 'Excluir usuario',
             'settings.permissions' => 'Permissoes',
             'settings.permissions.update' => 'Salvar alteracoes',
+            'administrative.whitelabel' => 'Whitelabel',
+            'administrative.whitelabel.update' => 'Salvar Whitelabel',
         ];
 
         if (isset($map[$name])) {

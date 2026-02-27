@@ -124,6 +124,10 @@ class SettingsPermissionsController extends Controller
             return "Configura\u{00E7}\u{00F5}es";
         }
 
+        if (Str::startsWith($name, 'administrative.')) {
+            return 'Administrativo';
+        }
+
         return 'Outras';
     }
 
@@ -139,6 +143,8 @@ class SettingsPermissionsController extends Controller
             'settings.users.delete' => "Excluir usu\u{00E1}rio",
             'settings.permissions' => "Permiss\u{00F5}es",
             'settings.permissions.update' => "Salvar altera\u{00E7}\u{00F5}es",
+            'administrative.whitelabel' => 'Whitelabel',
+            'administrative.whitelabel.update' => 'Salvar Whitelabel',
         ];
 
         if (isset($map[$name])) {

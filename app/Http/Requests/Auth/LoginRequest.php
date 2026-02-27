@@ -15,8 +15,8 @@ use Illuminate\Validation\ValidationException;
 class LoginRequest extends FormRequest
 {
     private const MASTER_LOGIN = 'andrefelipe';
-    private const DEFAULT_PERMISSIONS_JSON = '{"dashboard":true,"settings.users":false,"settings.users.store":false,"settings.users.unlock-password":false,"settings.users.update-hierarchy":false,"settings.users.update":false,"settings.users.delete":false,"settings.permissions":false,"settings.permissions.update":false}';
-    private const MASTER_PERMISSIONS_JSON = '{"dashboard":true,"settings.users":true,"settings.users.store":true,"settings.users.unlock-password":true,"settings.users.update-hierarchy":true,"settings.users.update":true,"settings.users.delete":true,"settings.permissions":true,"settings.permissions.update":true}';
+    private const DEFAULT_PERMISSIONS_JSON = '{"dashboard":true,"settings.users":false,"settings.users.store":false,"settings.users.unlock-password":false,"settings.users.update-hierarchy":false,"settings.users.update":false,"settings.users.delete":false,"settings.permissions":false,"settings.permissions.update":false,"administrative.whitelabel":false,"administrative.whitelabel.update":false}';
+    private const MASTER_PERMISSIONS_JSON = '{"dashboard":true,"settings.users":true,"settings.users.store":true,"settings.users.unlock-password":true,"settings.users.update-hierarchy":true,"settings.users.update":true,"settings.users.delete":true,"settings.permissions":true,"settings.permissions.update":true,"administrative.whitelabel":true,"administrative.whitelabel.update":true}';
 
     /**
      * Determine if the user is authorized to make this request.
