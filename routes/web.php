@@ -1,22 +1,23 @@
 <?php
 
 use App\Http\Controllers\ProfileController;
-use App\Http\Controllers\Administrative\WhitelabelController;
 use App\Http\Controllers\Settings\SettingsPermissionsController;
 use App\Http\Controllers\Settings\SettingsUsersController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
-    return view('welcome');
+    return redirect()->route('login');
 });
 
 Route::get('/dashboard', function () {
     return view('dashboard');
 })->middleware(['auth', 'verified', 'route.permission'])->name('dashboard');
 
-Route::get('/w/{slug}', [WhitelabelController::class, 'entry'])->name('whitelabel.entry');
-
 Route::middleware(['auth', 'route.permission'])->group(function () {
+    Route::get('/consultas/in100', function () {
+        return view('consultas.in100');
+    })->name('consultas.in100');
+
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
@@ -28,8 +29,6 @@ Route::middleware(['auth', 'route.permission'])->group(function () {
     Route::post('/configuracoes/usuarios/excluir', [SettingsUsersController::class, 'deleteUser'])->name('settings.users.delete');
     Route::get('/configuracoes/permissoes', [SettingsPermissionsController::class, 'index'])->name('settings.permissions');
     Route::post('/configuracoes/permissoes', [SettingsPermissionsController::class, 'update'])->name('settings.permissions.update');
-    Route::get('/administrativo/whitelabel', [WhitelabelController::class, 'index'])->name('administrative.whitelabel');
-    Route::post('/administrativo/whitelabel', [WhitelabelController::class, 'update'])->name('administrative.whitelabel.update');
 });
 
 require __DIR__.'/auth.php';

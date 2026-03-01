@@ -1,4 +1,4 @@
-﻿@php
+@php
     $passwordError = $errors->updatePassword->first('current_password')
         ?: $errors->updatePassword->first('password')
         ?: $errors->updatePassword->first('password_confirmation');

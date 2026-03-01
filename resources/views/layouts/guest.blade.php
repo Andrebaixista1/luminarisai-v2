@@ -7,7 +7,7 @@
         <link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}">
         <link rel="shortcut icon" href="{{ asset('favicon.svg') }}">
 
-        <title>{{ \App\Support\Whitelabel::systemName() }}</title>
+        <title>Lumi.A</title>
 
         <!-- Fonts -->
         <link rel="preconnect" href="https://fonts.bunny.net">
@@ -38,21 +38,11 @@
                     <path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"></path>
                 </svg>
             </button>
-            @php
-                $brand = \App\Support\Whitelabel::settings();
-                $brandName = $brand['system_name'] ?? 'Lumi.A';
-                $brandLogoUrl = $brand['logo_url'] ?? null;
-            @endphp
-
             <div class="flex flex-col items-center">
                 <a href="/">
-                    @if ($brandLogoUrl)
-                        <img src="{{ $brandLogoUrl }}" alt="Logo" class="w-28 h-28 rounded object-contain bg-white p-2 border border-gray-300">
-                    @else
-                        <x-application-logo class="w-28 h-28" />
-                    @endif
+                    <x-application-logo class="w-28 h-28" />
                 </a>
-                <p class="mt-2 text-sm font-semibold text-gray-700">{{ $brandName }}</p>
+                <p class="mt-2 text-sm font-semibold text-gray-700">Lumi.A</p>
             </div>
 
             <div class="w-full sm:max-w-md mt-6 px-6 py-4 bg-white shadow-md overflow-hidden sm:rounded-lg">

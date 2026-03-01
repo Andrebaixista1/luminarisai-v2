@@ -676,6 +676,10 @@ class SettingsUsersController extends Controller
             return 'Configuracoes';
         }
 
+        if (Str::startsWith($name, 'consultas.')) {
+            return 'Consultas';
+        }
+
         if (Str::startsWith($name, 'administrative.')) {
             return 'Administrativo';
         }
@@ -687,6 +691,7 @@ class SettingsUsersController extends Controller
     {
         $map = [
             'dashboard' => 'Painel',
+            'consultas.in100' => 'Consulta IN100',
             'settings.users' => 'Usuarios',
             'settings.users.store' => 'Criar usuario',
             'settings.users.unlock-password' => 'Liberar senha',
@@ -695,8 +700,6 @@ class SettingsUsersController extends Controller
             'settings.users.delete' => 'Excluir usuario',
             'settings.permissions' => 'Permissoes',
             'settings.permissions.update' => 'Salvar alteracoes',
-            'administrative.whitelabel' => 'Whitelabel',
-            'administrative.whitelabel.update' => 'Salvar Whitelabel',
         ];
 
         if (isset($map[$name])) {
@@ -750,6 +753,10 @@ class SettingsUsersController extends Controller
         }
 
         if ($permissionKey === 'dashboard') {
+            return true;
+        }
+
+        if ($permissionKey === 'consultas.in100') {
             return true;
         }
 

@@ -81,10 +81,9 @@ class EnsureRoutePermission
             $candidates[] = 'settings.permissions';
         }
 
-        if ($routeName === 'administrative.whitelabel' || Str::startsWith($routeName, 'administrative.whitelabel.')) {
-            $candidates[] = 'administrative.whitelabel';
-            // Compatibility path for users that still only have settings.permissions key.
-            $candidates[] = 'settings.permissions';
+        if (Str::startsWith($routeName, 'consultas.')) {
+            // Compatibility path for users with legacy permission JSON.
+            $candidates[] = 'dashboard';
         }
 
         return array_values(array_unique($candidates));

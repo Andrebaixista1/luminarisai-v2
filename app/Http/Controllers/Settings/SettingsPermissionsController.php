@@ -124,6 +124,10 @@ class SettingsPermissionsController extends Controller
             return "Configura\u{00E7}\u{00F5}es";
         }
 
+        if (Str::startsWith($name, 'consultas.')) {
+            return 'Consultas';
+        }
+
         if (Str::startsWith($name, 'administrative.')) {
             return 'Administrativo';
         }
@@ -135,6 +139,7 @@ class SettingsPermissionsController extends Controller
     {
         $map = [
             'dashboard' => 'Painel',
+            'consultas.in100' => 'Consulta IN100',
             'settings.users' => "Usu\u{00E1}rios",
             'settings.users.store' => "Criar usu\u{00E1}rio",
             'settings.users.unlock-password' => "Liberar senha",
@@ -143,8 +148,6 @@ class SettingsPermissionsController extends Controller
             'settings.users.delete' => "Excluir usu\u{00E1}rio",
             'settings.permissions' => "Permiss\u{00F5}es",
             'settings.permissions.update' => "Salvar altera\u{00E7}\u{00F5}es",
-            'administrative.whitelabel' => 'Whitelabel',
-            'administrative.whitelabel.update' => 'Salvar Whitelabel',
         ];
 
         if (isset($map[$name])) {
@@ -198,6 +201,10 @@ class SettingsPermissionsController extends Controller
         }
 
         if ($permissionKey === 'dashboard') {
+            return true;
+        }
+
+        if ($permissionKey === 'consultas.in100') {
             return true;
         }
 
